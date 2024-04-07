@@ -507,8 +507,8 @@ if [ $(grep -c "sm8250" "build/portrom/images/vendor/build.prop") -ne 0 ]; then
 
 fi
 # props from k60
-echo "persist.vendor.mi_sf.optimize_for_refresh_rate.enable=1" >> build/portrom/images/vendor/build.prop
-echo "ro.vendor.mi_sf.ultimate.perf.support=true"  >> build/portrom/images/vendor/build.prop
+#echo "persist.vendor.mi_sf.optimize_for_refresh_rate.enable=1" >> build/portrom/images/vendor/build.prop
+#echo "ro.vendor.mi_sf.ultimate.perf.support=true"  >> build/portrom/images/vendor/build.prop
 
 #echo "debug.sf.set_idle_timer_ms=1100" >> build/portrom/images/vendor/build.prop
 
@@ -560,19 +560,9 @@ else
     fi
     blue "开始移除 Android 签名校验" "Disalbe Android 14 Apk Signature Verfier"
     mkdir -p tmp/services/
-    cp -rf build/portrom/images/system/system/framework/services.jar tmp/services/services.jar
-    
-    7z x -y tmp/services/services.jar *.dex -otmp/services > /dev/null 2>&1
+    cp -rf build/portrom/images/system/system/framework/services.jar tmp/services.apk
+    java -jar bin/apktool/apktool.jar d -q -f tmp/services.apk -o tmp/services/
     target_method='getMinimumSignatureSchemeVersionForTargetSdk' 
-    for dexfile in tmp/services/*.dex;do
-        smali_fname=${dexfile%.*}
-        smali_base_folder=$(echo $smali_fname | cut -d "/" -f 3)
-        java -jar bin/apktool/baksmali.jar d --api ${port_android_sdk} ${dexfile} -o tmp/services/$smali_base_folder
-    done
-
-    old_smali_dir=""
-    declare -a smali_dirs
-
     while read -r smali_file; do
         smali_dir=$(echo "$smali_file" | cut -d "/" -f 3)
 
@@ -585,19 +575,13 @@ else
         move_result_end_line=$(awk -v ML=$method_line 'NR>=ML && /move-result /{print NR; exit}' "$smali_file")
         orginal_line_number=$method_line
         replace_with_command="const/4 v${register_number}, 0x0"
-        { sed -i "${orginal_line_number},${move_result_end_line}d" "$smali_file" && sed -i "${orginal_line_number}i\\${replace_with_command}" "$smali_file"; } &&    blue "${smali_file}  修改成功"
+        { sed -i "${orginal_line_number},${move_result_end_line}d" "$smali_file" && sed -i "${orginal_line_number}i\\${replace_with_command}" "$smali_file"; } &&   blue "${smali_file}  修改成功" "${smali_file} modified" 
         old_smali_dir=$smali_dir
     done < <(find tmp/services -type f -name "*.smali" -exec grep -H "$target_method" {} \; | cut -d ':' -f 1)
-
-    for smali_dir in "${smali_dirs[@]}"; do
-        blue "反编译成功，开始回编译 $smali_dir"
-        java -jar bin/apktool/smali.jar a --api ${port_android_sdk} tmp/services/${smali_dir} -o tmp/services/${smali_dir}.dex
-        pushd tmp/services/ > /dev/null 2>&1
-        7z a -y -mx0 -tzip services.jar ${smali_dir}.dex > /dev/null 2>&1
-        popd > /dev/null 2>&1
-    done
-    
-    cp -rf tmp/services/services.jar build/portrom/images/system/system/framework/services.jar
+    blue "重新打包 services.jar" "Repacking services.jar"
+    java -jar bin/apktool/apktool.jar b -q -f -c tmp/services/ -o tmp/services_modified.jar
+    blue "打包services.jar完成" "Repacking services.jar completed"
+    cp -rf tmp/services_modified.jar build/portrom/images/system/system/framework/services.jar
     
 fi
 
@@ -653,7 +637,7 @@ else
     rm -rf build/portrom/images/product/etc/auto-install*
     rm -rf build/portrom/images/product/data-app/*GalleryLockscreen* >/dev/null 2>&1
     mkdir -p tmp/app
-    kept_data_apps=("DownloadProviderUi" "VirtualSim" "ThirdAppAssistant" "GameCenter" "Video" "Weather" "DeskClock" "Gallery" "SoundRecorder" "ScreenRecorder" "Calculator" "CleanMaster" "Calendar" "Compass" "Notes" "MediaEditor" "Scanner" "SpeechEngine" "wps-lite")
+    kept_data_apps=("DownloadProviderUi" "VirtualSim" "ThirdAppAssistant" "Video" "Weather" "DeskClock" "Gallery" "SoundRecorder" "ScreenRecorder" "Calculator" "CleanMaster" "Calendar" "Compass" "Notes" "MediaEditor" "Scanner" "SpeechEngine" "wps-lite")
     for app in "${kept_data_apps[@]}"; do
         mv build/portrom/images/product/data-app/*"${app}"* tmp/app/ >/dev/null 2>&1
         done
@@ -721,10 +705,10 @@ for i in $(find build/portrom/images -type f -name "build.prop");do
     sed -i "/persist.wm.extensions.enabled=true/d" ${i}
 done
 
-#sed -i -e '$a\'$'\n''persist.adb.notify=0' build/portrom/images/system/system/build.prop
-#sed -i -e '$a\'$'\n''persist.sys.usb.config=mtp,adb' build/portrom/images/system/system/build.prop
-#sed -i -e '$a\'$'\n''persist.sys.disable_rescue=true' build/portrom/images/system/system/build.prop
-#sed -i -e '$a\'$'\n''persist.miui.extm.enable=0' build/portrom/images/system/system/build.prop
+sed -i -e '$a\'$'\n''persist.adb.notify=0' build/portrom/images/system/system/build.prop
+sed -i -e '$a\'$'\n''persist.sys.usb.config=mtp,adb' build/portrom/images/system/system/build.prop
+sed -i -e '$a\'$'\n''persist.sys.disable_rescue=true' build/portrom/images/system/system/build.prop
+sed -i -e '$a\'$'\n''persist.miui.extm.enable=0' build/portrom/images/system/system/build.prop
 
 # 屏幕密度修修改
 for prop in $(find build/baserom/images/product build/baserom/images/system -type f -name "build.prop");do
@@ -752,7 +736,7 @@ if [ $found -eq 0  ]; then
         echo "ro.sf.lcd_density=${base_rom_density}" >> build/portrom/images/product/etc/build.prop
 fi
 
-echo "ro.miui.cust_erofs=0" >> build/portrom/images/product/etc/build.prop
+#echo "ro.miui.cust_erofs=0" >> build/portrom/images/product/etc/build.prop
 
 #vendorprop=$(find build/portrom/images/vendor -type f -name "build.prop")
 #odmprop=$(find build/baserom/images/odm -type f -name "build.prop" |awk 'NR==1')
@@ -802,6 +786,7 @@ if  grep -q "ro.vendor.media.video.frc.support" build/portrom/images/vendor/buil
 else
     echo "ro.vendor.media.video.frc.support=true" >> build/portrom/images/vendor/build.prop
 fi
+
 # Game splashscreen speed up
 echo "debug.game.video.speed=true" >> build/portrom/images/product/etc/build.prop
 echo "debug.game.video.support=true" >> build/portrom/images/product/etc/build.prop
@@ -830,6 +815,7 @@ unlock_device_feature "default texture for paper eyecare" "integer" "paper_eyeca
 #自定义替换
 
 if [[ ${port_rom_code} == "dagu_cn" ]];then
+    pack_type=EROFS
     echo "ro.control_privapp_permissions=log" >> build/portrom/images/product/etc/build.prop
     
     rm -rf build/portrom/images/product/overlay/MiuiSystemUIResOverlay.apk
@@ -952,12 +938,7 @@ fi
 # 去除avb校验
 blue "去除avb校验" "Disable avb verification."
 for fstab in $(find build/portrom/images/ -type f -name "fstab.*");do
-    blue "Target: $fstab"
-    sed -i "s/,avb_keys=.*avbpubkey//g" $fstab
-    sed -i "s/,avb=vbmeta_system//g" $fstab
-    sed -i "s/,avb=vbmeta_vendor//g" $fstab
-    sed -i "s/,avb=vbmeta//g" $fstab
-    sed -i "s/,avb//g" $fstab
+    disable_avb_verify $fstab
 done
 
 # data 加密
@@ -994,9 +975,9 @@ for pname in ${super_list};do
         fi
         case $pname in
             mi_ext) addSize=4194304 ;;
-            odm) addSize=34217728 ;;
-            system|vendor|system_ext) addSize=84217728 ;;
-            product) addSize=104217728 ;;
+            odm) addSize=4217728 ;;
+            system|vendor|system_ext) addSize=80217728 ;;
+            product) addSize=100217728 ;;
             *) addSize=8554432 ;;
         esac
         if [ "$pack_type" = "EXT" ];then
@@ -1075,7 +1056,7 @@ else
     done
 fi
 lpmake $lpargs
-#echo "lpmake $lpargs"
+blue "lpmake $lpargs"
 if [ -f "build/portrom/images/super.img" ];then
     green "成功打包 super.img" "Pakcing super.img done."
 else
@@ -1139,7 +1120,7 @@ if [[ "$is_ab_device" == false ]];then
     for img in $(find out/${os_type}_${device_code}_${port_rom_version}/firmware-update -type f -name "vbmeta*.img");do
         python3 bin/patch-vbmeta.py ${img} > /dev/null 2>&1
     done
-    cp -rf bin/flash/a-only/update-binary out/${os_type}_${device_code}_${port_rom_version}/META-INF/com/google/android/
+   cp -rf bin/flash/a-only/update-binary out/${os_type}_${device_code}_${port_rom_version}/META-INF/com/google/android/
     cp -rf bin/flash/zstd out/${os_type}_${device_code}_${port_rom_version}/META-INF/
     ksu_bootimg_file=$(find devices/$base_rom_code/ -type f -name "boot_ksu*.img")
     nonksu_bootimg_file=$(find devices/$base_rom_code/ -type f -name "boot_nonksu*.img")
