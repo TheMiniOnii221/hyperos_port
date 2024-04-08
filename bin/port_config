@@ -1,5 +1,5 @@
 # 需要移植的分区
-partition_to_port=system product system_ext mi_ext
+partition_to_port=super
 
 
 # 可能的super子分区列表
